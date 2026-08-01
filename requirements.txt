@@ -9,3 +9,4 @@ onnxruntime<1.21
 python-dotenv
 langgraph
 ipykernel
+deepeval
