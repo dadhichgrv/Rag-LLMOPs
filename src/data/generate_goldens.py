@@ -66,13 +66,12 @@ load_dotenv()
 
 # define paths
 # Path(__file__) will give path of current file but i want the path of parent folder , then add .parent
-ROOT_PATH   = Path(__file__).parent  
-DATASET_DIR = ROOT_PATH / "datasets"
-DOCS_PATH = ROOT_PATH / "Clean_Transcript"
+ROOT_PATH   = Path(__file__).parent.parent.parent
+DOCS_PATH = ROOT_PATH / "data" / "processed"
+GOLDENS_DIR = ROOT_PATH / "data" / "evaluation" / "goldens"
 
-# Create folder to store datasets
-DATASET_DIR.mkdir(exist_ok=True)
-
+# Create directory to store goldens
+GOLDENS_DIR.mkdir(exist_ok=True, parents=True)
 
 def get_docs_path(directory_path: Path | str):
     # Directory path can be path object or string. So we are convevrting it to Path object anyways
@@ -88,8 +87,8 @@ def get_docs_path(directory_path: Path | str):
 # Set filtrationn config
 filtration_config = FiltrationConfig(
                                      critic_model                       = FoundryLLM(),
-                                     max_quality_retries               = 2,
-                                     synthetic_input_quality_threshold = 0.5
+                                     max_quality_retries                = 2,
+                                     synthetic_input_quality_threshold  = 0.5
                                      )
 
 
@@ -105,21 +104,13 @@ evolution_config = EvolutionConfig(
                         num_evolutions=3
                             )
 
-# Context Config
-# context_config = ContextConstructionConfig(
-#                         critic_model                 = FoundryLLM(),
-#                         max_contexts_per_document    = 2,
-#                         max_context_length           = 3,
-#                         context_quality_threshold = 0.3,
-#                         max_retries                  = 2
-#                                           )
 
 context_config = ContextConstructionConfig(
     embedder=FoundryEmbedder(),          # moved here, not on Synthesizer
     critic_model=FoundryLLM(),
-    chunk_size=1024,                     # explicit — don't rely on default
-    chunk_overlap=128,
-    max_contexts_per_document=2,
+    max_contexts_per_document=1,
+    chunk_overlap = 50,
+    chunk_size    = 300,
     max_context_length=2,
     context_quality_threshold=0.3,
     max_retries=2,
@@ -131,22 +122,20 @@ synthesizer = Synthesizer(
                           model             = FoundryLLM(),
                           filtration_config = filtration_config,
                           evolution_config  = evolution_config,
-                          max_concurrent = 2,   # 2 goldens to be generated in parallel. If this number is big, you may get rate limit error
+                          max_concurrent    = 2,   # 2 goldens to be generated in parallel. If this number is big, you may get rate limit error
                           )
 
 
 # Generate goldens
 goldens = synthesizer.generate_goldens_from_docs(
           document_paths              = get_docs_path(DOCS_PATH),
-          max_goldens_per_context     = 2,
+          max_goldens_per_context     = 1,
           include_expected_output     = True,         # This will generate the expected answer also and is default to true
           context_construction_config = context_config
           )          
                                                 
 
-# Create directory to store goldens
-GOLDENS_DIR = DATASET_DIR / "goldens"
-GOLDENS_DIR.mkdir(exist_ok=True, parents=True)
+
 
 synthesizer.save_as(
     file_type = 'json',

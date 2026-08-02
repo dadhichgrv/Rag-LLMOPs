@@ -15,7 +15,9 @@ from langchain_core.output_parsers import StrOutputParser
 
 load_dotenv()
 
-OUT_DIR = Path("./Clean_Transcript")
+ROOT_DIR                  = Path(__file__).parent.parent.parent
+PROCESSED_TRANSCRIPTS_DIR = ROOT_DIR / "data" / "processed"
+VECTOR_STORE_DIR          = ROOT_DIR / "saved_embeddings"
 
 # Load LLM
 llm = ChatOpenAI(
@@ -33,27 +35,56 @@ embedder = OpenAIEmbeddings(
     base_url=os.getenv("AZURE_OPENAI_ENDPOINT"),
 )
 
+model_name = "gpt-5-mini"
+chunk_size = 300
+chunk_overlap = 50
+
+
 # Load documents from the directory
-loader = DirectoryLoader(OUT_DIR.as_posix(), 
+def upsert_documents(chunk_size : int, chunk_overlap : int):
+    # Load documents from source
+    loader = DirectoryLoader(PROCESSED_TRANSCRIPTS_DIR.as_posix(), 
                          loader_cls=TextLoader, 
                          show_progress=True)
 
-docs = loader.load()
+    docs = loader.load()
 
-# Split documents into chunks
-chunker = RecursiveCharacterTextSplitter(chunk_size=200, chunk_overlap=50)
-chunks = chunker.split_documents(docs)
+    # Split documents into tokens 
+    # To mirror DeepEval's ContextConstructionnConfig token sizing
+    chunker = RecursiveCharacterTextSplitter.from_tiktoken_encoder(chunk_size    = chunk_size, 
+                                                                   chunk_overlap = chunk_overlap,
+                                                                   model_name    = model_name)
+    chunks = chunker.split_documents(docs)
 
-# Create a Chroma vector store and add the document chunks
-vector_store = Chroma(collection_name="rag_demo",
-                      embedding_function = embedder,
-                      persist_directory = Path("./saved-embeddings").as_posix())
+    # Create a Chroma vector store and add the document chunks
+    vector_store = Chroma(collection_name="rag_demo",
+                        embedding_function = embedder,
+                        persist_directory = VECTOR_STORE_DIR.as_posix())
 
-# Save embbeddings to local
-#vector_store.add_documents(chunks)
+    # Save embbeddings to local
+    vector_store.add_documents(chunks)
+
+    return vector_store
+
+
+# Load Vector Store
+def load_knowledge_base():
+    # Vector Store
+    vector_store = Chroma(collection_name="rag_demo",
+                        embedding_function = embedder,
+                        persist_directory = VECTOR_STORE_DIR.as_posix())
+    return vector_store 
+
+
+# condition to check if vector store exists and load or create new
+if VECTOR_STORE_DIR.exists():
+    vector_store = load_knowledge_base()
+else:
+    vector_store = upsert_documents(chunk_size, chunk_overlap)
 
 # Create a retriever from the vector store
-retriever = vector_store.as_retriever(search_kwargs={"k": 3})
+retriever = vector_store.as_retriever(search_kwargs={"k": 3},
+                                      search_type = "similarity")
 
 
 # Define class for the workflow
