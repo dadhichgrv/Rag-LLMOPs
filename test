@@ -1,173 +1,72 @@
+# from fastapi import APIRouter
+# from src.app.ingestion.azure_storage import get_blob_data
 
-import os , json
-from pathlib import Path
-from typing import BinaryIO
-from dotenv import load_dotenv
-from azure.storage.blob import BlobServiceClient, ContentSettings
+# router = APIRouter()
 
-load_dotenv() 
-
-account_url    = os.getenv("AZURE_STORAGE_URL")
-container_name = os.getenv("AZURE_CONTAINER_NAME")
-blob_name      = os.getenv("AZURE_BLOB_NAME")
-input_container_name = os.getenv("AZURE_INPUT_CONTAINER_NAME")
-input_blob_prefix = os.getenv("AZURE_INPUT_BLOB_PREFIX", "").strip("/")
-
-storage_key    = os.getenv("AZURE_STORAGE_KEY") 
-
-KPI_FIELDS = {
-    "revenue",
-    "profit",
-    "net_income",
-    "operating_income",
-    "cash_flow",
-    "total_asset",
-    "total_assets",
-    "total_liabilities",
-    "risk_factors",
-    "growth_drivers",
-}
-
-def _get_blob_service_client() -> BlobServiceClient:
-    if not account_url or not storage_key:
-        raise ValueError("AZURE_STORAGE_URL and AZURE_STORAGE_KEY must be configured")
-
-    return BlobServiceClient(account_url=account_url, credential=storage_key)
+# @router.get("/metrics")
+# def get_metrics():
+#     return get_blob_data()
 
 
-def upload_input_document(payload: BinaryIO, filename: str, content_type: str) -> str:
-    if not input_container_name:
-        raise ValueError("AZURE_INPUT_CONTAINER_NAME must be configured")
+from fastapi import APIRouter, Request
+from fastapi.templating import Jinja2Templates
+from src.app.ingestion.azure_storage import get_blob_data # the function from the previous script
 
-    blob_path = "/".join(part for part in (input_blob_prefix, Path(filename).name) if part)
-    blob_client = _get_blob_service_client().get_blob_client(
-        container=input_container_name,
-        blob=blob_path,
+router = APIRouter()
+templates = Jinja2Templates(directory="templates")  # adjust to wherever your .html files live
+
+
+def flatten_metrics(raw_data: list[dict]) -> list[dict]:
+    """Flatten get_all_blob_data()'s nested shape into flat rows the
+    template can read directly, and rename fields to match what the
+    template actually checks for (e.g. total_asset -> total_assets).
+    """
+    rows = []
+    for doc in raw_data:
+        metrics = doc.get("metrics", {})
+        report_company = metrics.get("company") or doc.get("company") or "Unknown"
+        report_year = metrics.get("year") or doc.get("year")
+        report_key = doc.get("blob_name") or "::".join(
+            (str(report_company), str(report_year or "unknown"))
+        )
+        rows.append({
+            "report_key": report_key,
+            "company": report_company,
+            "year": report_year,
+            "revenue": metrics.get("revenue"),
+            "net_income": metrics.get("net_income") or metrics.get("profit"),
+            "operating_income": metrics.get("operating_income"),
+            "cash_flow": metrics.get("cash_flow"),
+            "total_assets": metrics.get("total_assets") or metrics.get("total_asset"),
+            "total_liabilities": metrics.get("total_liabilities"),
+            "risk_factors": metrics.get("risk_factors"),
+            "growth_drivers": metrics.get("growth_drivers"),
+        })
+    return rows
+
+
+@router.get("/dashboard")
+def dashboard(request: Request):
+    raw_data = get_blob_data()
+    metrics = flatten_metrics(raw_data)
+
+    total_companies = len({row["company"] for row in metrics if row.get("company")})
+    total_reports = len(metrics)
+ 
+    # Must return a rendered template, not the raw data --
+    # `return metrics` skips the HTML entirely and just serializes JSON.
+    return templates.TemplateResponse(
+        "templates/dashboard.html",
+        {
+            "request": request,
+            "metrics": metrics,
+            "total_companies": total_companies,
+            "total_reports": total_reports,
+        },
     )
-    blob_client.upload_blob(
-        payload,
-        overwrite=True,
-        content_settings=ContentSettings(content_type=content_type),
-    )
-    return blob_path
 
-
-def download_input_document(blob_path: str, destination: Path) -> None:
-    if not input_container_name:
-        raise ValueError("AZURE_INPUT_CONTAINER_NAME must be configured")
-
-    blob_client = _get_blob_service_client().get_blob_client(
-        container=input_container_name,
-        blob=blob_path,
-    )
-    destination.write_bytes(blob_client.download_blob().readall())
-
-def upload_blob_data(payload, company, year):
-
-    # set client to access azure storage container
-    blob_service_client = _get_blob_service_client()
-
-    # Then using blob service client get container client and access that container
-    container_client = blob_service_client.get_container_client(container = container_name)
-
-    # download blob data using container client and access blob or file
-   
-    dynamic_blob_path = f"{blob_name}/{company}_{year}_extracted_kpis.json"
-    blob_client = container_client.get_blob_client(blob = dynamic_blob_path)
-
-    # read all information from this blob then
-    payload = payload.encode('utf-8')
-    data = blob_client.upload_blob(payload, overwrite = True, 
-                                   content_settings = ContentSettings(content_type = "application/json") )
-
-    return data
-
-#secret_name = "secret"
-#secret_client = SecretClient(vault_url = vault_url, credential = credentials)
-#secret = secret_client.get_secret(secret_name)
-
-
-def _metric_payloads(parsed: object) -> list[dict]:
-    if isinstance(parsed, list):
-        candidates = parsed
-    elif isinstance(parsed, dict) and isinstance(parsed.get("metrics"), list):
-        candidates = parsed["metrics"]
-    elif isinstance(parsed, dict) and isinstance(parsed.get("metrics"), dict):
-        candidates = [parsed["metrics"]]
-    else:
-        candidates = [parsed]
-
-    return [
-        candidate
-        for candidate in candidates
-        if isinstance(candidate, dict) and KPI_FIELDS.intersection(candidate)
-    ]
-
-
-def _blob_company_year(blob_path: str, metrics: dict) -> tuple[str, str | None]:
-    path = Path(blob_path)
-    filename = path.name
-    company = metrics.get("company")
-    year = metrics.get("year")
-
-    if filename.endswith("_extracted_kpis.json"):
-        stem = filename.removesuffix("_extracted_kpis.json")
-        filename_company, separator, filename_year = stem.rpartition("_")
-        company = company or (filename_company if separator else stem)
-        year = year or (filename_year if separator else None)
-    else:
-        company = company or (path.parent.name if path.parent.name else path.stem)
-
-    return str(company), str(year) if year is not None else None
-
-
-def get_blob_data() -> list[dict]:
-    """Load every KPI-shaped JSON blob from the configured metrics container."""
-    blob_service_client = _get_blob_service_client()
-    container_client = blob_service_client.get_container_client(container=container_name)
- 
-    all_data = []
- 
-    blob_list = container_client.list_blobs()
- 
-    for blob_props in blob_list:
-        if not blob_props.name.lower().endswith(".json"):
-            continue
-
-        blob_client = container_client.get_blob_client(blob=blob_props.name)
-        try:
-            raw = blob_client.download_blob().readall().decode("utf-8")
-            parsed = json.loads(raw)
-        except Exception as e:
-            print(f"[WARN] failed to read/parse blob '{blob_props.name}': {e}")
-            continue
- 
-        for metrics in _metric_payloads(parsed):
-            company, year = _blob_company_year(blob_props.name, metrics)
-            all_data.append({
-                "company": company,
-                "year": year,
-                "blob_name": blob_props.name,
-                "metrics": metrics,
-            })
- 
-    print(f"[INFO] loaded {len(all_data)} document(s) from container '{container_name}'")
-    return all_data
-
-# def get_blob_data(company,year):
-
-#     # set client to access azure storage container
-#     blob_service_client = BlobServiceClient(account_url = account_url, credential = storage_key)
-
-#     # Then using blob service client get container client and access that container
-#     container_client = blob_service_client.get_container_client(container = container_name)
-
-#     # download blob data using container client and access blob or file
-#     dynamic_blob_path = f"{blob_name}/{company}_{year}_extracted_kpis.json"
-#     blob_client = container_client.get_blob_client(blob = dynamic_blob_path)
-
-#     # read all information from this blob then
-#     data = blob_client.download_blob().readall().decode("utf-8")
-
-#     return data
-
+    # return templates.TemplateResponse(
+    #     # "templates/dashboard.html",  # the file containing your kpi-card HTML
+    #     {"request": request, "metrics": metrics}
+    # )
+    
