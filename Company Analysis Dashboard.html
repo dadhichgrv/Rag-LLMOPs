@@ -48,11 +48,11 @@
         <div class="stats-summary">
             <div class="stat-row">
                 <span class="stat-label">Companies</span>
-                <span class="stat-val" id="statsCompanies">{{ total_companies }}</span>
+                <span class="stat-val" id="statsCompanies">2</span>
             </div>
             <div class="stat-row">
                 <span class="stat-label">Reports Analyzed</span>
-                <span class="stat-val" id="statsReports">{{ total_reports }}</span>
+                <span class="stat-val" id="statsReports">2</span>
             </div>
         </div>
     </aside>
@@ -67,7 +67,7 @@
             </div>
         </header>
 
-        {% if metrics %}
+        
         <!-- KPI Cards Grid -->
         <section class="kpi-grid">
             <!-- 1. Revenue Card -->
@@ -84,22 +84,37 @@
                     </div>
                 </div>
                 <div class="kpi-values-list">
-                    {% for row in metrics %}
-                    {% if row.revenue %}
+                    
+                    
                     <div class="kpi-value-row">
                         <div class="kpi-company-label">
                             <span class="company-badge-name">
-                                <span class="company-logo-avatar">{{ row.company[:2] | upper }}</span>
-                                <span>{{ row.company }} ({{ row.year }})</span>
+                                <span class="company-logo-avatar">MS</span>
+                                <span>MSFT (2026)</span>
                             </span>
-                            <span class="kpi-val-number">{{ row.revenue }}</span>
+                            <span class="kpi-val-number">331839.0</span>
                         </div>
                         <div class="kpi-compare-bar-bg">
                             <div class="kpi-compare-bar-fill"></div>
                         </div>
                     </div>
-                    {% endif %}
-                    {% endfor %}
+                    
+                    
+                    
+                    <div class="kpi-value-row">
+                        <div class="kpi-company-label">
+                            <span class="company-badge-name">
+                                <span class="company-logo-avatar">SA</span>
+                                <span>Salesforce (2026)</span>
+                            </span>
+                            <span class="kpi-val-number">41525.0</span>
+                        </div>
+                        <div class="kpi-compare-bar-bg">
+                            <div class="kpi-compare-bar-fill"></div>
+                        </div>
+                    </div>
+                    
+                    
                 </div>
             </div>
 
@@ -117,22 +132,37 @@
                     </div>
                 </div>
                 <div class="kpi-values-list">
-                    {% for row in metrics %}
-                    {% if row.net_income %}
+                    
+                    
                     <div class="kpi-value-row">
                         <div class="kpi-company-label">
                             <span class="company-badge-name">
-                                <span class="company-logo-avatar">{{ row.company[:2] | upper }}</span>
-                                <span>{{ row.company }} ({{ row.year }})</span>
+                                <span class="company-logo-avatar">MS</span>
+                                <span>MSFT (2026)</span>
                             </span>
-                            <span class="kpi-val-number">{{ row.net_income }}</span>
+                            <span class="kpi-val-number">133749.0</span>
                         </div>
                         <div class="kpi-compare-bar-bg">
                             <div class="kpi-compare-bar-fill"></div>
                         </div>
                     </div>
-                    {% endif %}
-                    {% endfor %}
+                    
+                    
+                    
+                    <div class="kpi-value-row">
+                        <div class="kpi-company-label">
+                            <span class="company-badge-name">
+                                <span class="company-logo-avatar">SA</span>
+                                <span>Salesforce (2026)</span>
+                            </span>
+                            <span class="kpi-val-number">7457.0</span>
+                        </div>
+                        <div class="kpi-compare-bar-bg">
+                            <div class="kpi-compare-bar-fill"></div>
+                        </div>
+                    </div>
+                    
+                    
                 </div>
             </div>
 
@@ -151,22 +181,37 @@
                     </div>
                 </div>
                 <div class="kpi-values-list">
-                    {% for row in metrics %}
-                    {% if row.operating_income %}
+                    
+                    
                     <div class="kpi-value-row">
                         <div class="kpi-company-label">
                             <span class="company-badge-name">
-                                <span class="company-logo-avatar">{{ row.company[:2] | upper }}</span>
-                                <span>{{ row.company }} ({{ row.year }})</span>
+                                <span class="company-logo-avatar">MS</span>
+                                <span>MSFT (2026)</span>
                             </span>
-                            <span class="kpi-val-number">{{ row.operating_income }}</span>
+                            <span class="kpi-val-number">155237.0</span>
                         </div>
                         <div class="kpi-compare-bar-bg">
                             <div class="kpi-compare-bar-fill"></div>
                         </div>
                     </div>
-                    {% endif %}
-                    {% endfor %}
+                    
+                    
+                    
+                    <div class="kpi-value-row">
+                        <div class="kpi-company-label">
+                            <span class="company-badge-name">
+                                <span class="company-logo-avatar">SA</span>
+                                <span>Salesforce (2026)</span>
+                            </span>
+                            <span class="kpi-val-number">8331.0</span>
+                        </div>
+                        <div class="kpi-compare-bar-bg">
+                            <div class="kpi-compare-bar-fill"></div>
+                        </div>
+                    </div>
+                    
+                    
                 </div>
             </div>
 
@@ -184,22 +229,37 @@
                     </div>
                 </div>
                 <div class="kpi-values-list">
-                    {% for row in metrics %}
-                    {% if row.cash_flow %}
+                    
+                    
                     <div class="kpi-value-row">
                         <div class="kpi-company-label">
                             <span class="company-badge-name">
-                                <span class="company-logo-avatar">{{ row.company[:2] | upper }}</span>
-                                <span>{{ row.company }} ({{ row.year }})</span>
+                                <span class="company-logo-avatar">MS</span>
+                                <span>MSFT (2026)</span>
                             </span>
-                            <span class="kpi-val-number">{{ row.cash_flow }}</span>
+                            <span class="kpi-val-number">182900.0</span>
                         </div>
                         <div class="kpi-compare-bar-bg">
                             <div class="kpi-compare-bar-fill"></div>
                         </div>
                     </div>
-                    {% endif %}
-                    {% endfor %}
+                    
+                    
+                    
+                    <div class="kpi-value-row">
+                        <div class="kpi-company-label">
+                            <span class="company-badge-name">
+                                <span class="company-logo-avatar">SA</span>
+                                <span>Salesforce (2026)</span>
+                            </span>
+                            <span class="kpi-val-number">14996.0</span>
+                        </div>
+                        <div class="kpi-compare-bar-bg">
+                            <div class="kpi-compare-bar-fill"></div>
+                        </div>
+                    </div>
+                    
+                    
                 </div>
             </div>
 
@@ -217,22 +277,37 @@
                     </div>
                 </div>
                 <div class="kpi-values-list">
-                    {% for row in metrics %}
-                    {% if row.total_assets %}
+                    
+                    
                     <div class="kpi-value-row">
                         <div class="kpi-company-label">
                             <span class="company-badge-name">
-                                <span class="company-logo-avatar">{{ row.company[:2] | upper }}</span>
-                                <span>{{ row.company }} ({{ row.year }})</span>
+                                <span class="company-logo-avatar">MS</span>
+                                <span>MSFT (2026)</span>
                             </span>
-                            <span class="kpi-val-number">{{ row.total_assets }}</span>
+                            <span class="kpi-val-number">758376.0</span>
                         </div>
                         <div class="kpi-compare-bar-bg">
                             <div class="kpi-compare-bar-fill"></div>
                         </div>
                     </div>
-                    {% endif %}
-                    {% endfor %}
+                    
+                    
+                    
+                    <div class="kpi-value-row">
+                        <div class="kpi-company-label">
+                            <span class="company-badge-name">
+                                <span class="company-logo-avatar">SA</span>
+                                <span>Salesforce (2026)</span>
+                            </span>
+                            <span class="kpi-val-number">112305.0</span>
+                        </div>
+                        <div class="kpi-compare-bar-bg">
+                            <div class="kpi-compare-bar-fill"></div>
+                        </div>
+                    </div>
+                    
+                    
                 </div>
             </div>
 
@@ -250,22 +325,37 @@
                     </div>
                 </div>
                 <div class="kpi-values-list">
-                    {% for row in metrics %}
-                    {% if row.total_liabilities %}
+                    
+                    
                     <div class="kpi-value-row">
                         <div class="kpi-company-label">
                             <span class="company-badge-name">
-                                <span class="company-logo-avatar">{{ row.company[:2] | upper }}</span>
-                                <span>{{ row.company }} ({{ row.year }})</span>
+                                <span class="company-logo-avatar">MS</span>
+                                <span>MSFT (2026)</span>
                             </span>
-                            <span class="kpi-val-number">{{ row.total_liabilities }}</span>
+                            <span class="kpi-val-number">315989.0</span>
                         </div>
                         <div class="kpi-compare-bar-bg">
                             <div class="kpi-compare-bar-fill"></div>
                         </div>
                     </div>
-                    {% endif %}
-                    {% endfor %}
+                    
+                    
+                    
+                    <div class="kpi-value-row">
+                        <div class="kpi-company-label">
+                            <span class="company-badge-name">
+                                <span class="company-logo-avatar">SA</span>
+                                <span>Salesforce (2026)</span>
+                            </span>
+                            <span class="kpi-val-number">53163.0</span>
+                        </div>
+                        <div class="kpi-compare-bar-bg">
+                            <div class="kpi-compare-bar-fill"></div>
+                        </div>
+                    </div>
+                    
+                    
                 </div>
             </div>
         </section>
@@ -291,9 +381,11 @@
                     <div class="company-selector-wrapper">
                         <label for="companySelect">Inspect Company</label>
                         <select id="companySelect" class="company-select" onchange="switchCompany(this.value)">
-                            {% for row in metrics %}
-                                <option value="{{ row.report_key }}">{{ row.company }} ({{ row.year }})</option>
-                            {% endfor %}
+                            
+                                <option value="rag/metrics/MSFT_2026_extracted_kpis.json">MSFT (2026)</option>
+                            
+                                <option value="rag/metrics/Salesforce_2026_extracted_kpis.json">Salesforce (2026)</option>
+                            
                         </select>
                     </div>
                 </div>
@@ -327,19 +419,7 @@
                 </div>
             </div>
         </section>
-        {% else %}
-        <!-- Empty State -->
-        <div class="deep-dive-card" style="text-align: center; padding: 60px 40px;">
-            <svg viewBox="0 0 24 24" style="width: 64px; height: 64px; margin: 0 auto 20px; stroke: var(--text-muted); stroke-width: 1.5; fill: none;">
-                <path d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
-            </svg>
-            <h2 style="font-size: 20px; margin-bottom: 8px;">No Corporate Data Yet</h2>
-            <p style="color: var(--text-secondary); max-width: 480px; margin: 0 auto 24px; font-size: 14px;">
-                Ingest your first company financial statement (e.g., 10-K, 10-Q reports in PDF format) using the sidebar uploader. 
-                Our AI engine will parse the financial metrics, risks, and growth drivers.
-            </p>
-        </div>
-        {% endif %}
+        
     </main>
 
     <!-- Right Chat Panel -->
@@ -382,9 +462,11 @@
                 <label class="chat-context-label">Company</label>
                 <select id="chatCompanySelect" class="chat-context-select">
                     <option value="">All Companies</option>
-                    {% for row in metrics %}
-                    <option value="{{ row.report_key }}">{{ row.company }} ({{ row.year }})</option>
-                    {% endfor %}
+                    
+                    <option value="rag/metrics/MSFT_2026_extracted_kpis.json">MSFT (2026)</option>
+                    
+                    <option value="rag/metrics/Salesforce_2026_extracted_kpis.json">Salesforce (2026)</option>
+                    
                 </select>
             </div>
             <div class="chat-input-row">
@@ -413,20 +495,33 @@
 <!-- JSON data bridge from Python to JavaScript -->
 <script>
     const companyData = {
-        {% for row in metrics %}
-            {{ row.report_key | tojson }}: {
-                "company": {{ row.company | tojson }},
-                "year": "{{ row.year }}",
-                "revenue": "{{ row.revenue }}",
-                "net_income": "{{ row.net_income }}",
-                "operating_income": "{{ row.operating_income }}",
-                "cash_flow": "{{ row.cash_flow }}",
-                "total_assets": "{{ row.total_assets }}",
-                "total_liabilities": "{{ row.total_liabilities }}",
-                "growth_drivers": {{ (row.growth_drivers or '').split('\n') | tojson }},
-                "risk_factors": {{ (row.risk_factors or '').split('\n') | tojson }}
+        
+            "rag/metrics/MSFT_2026_extracted_kpis.json": {
+                "company": "MSFT",
+                "year": "2026",
+                "revenue": "331839.0",
+                "net_income": "133749.0",
+                "operating_income": "155237.0",
+                "cash_flow": "182900.0",
+                "total_assets": "758376.0",
+                "total_liabilities": "315989.0",
+                "growth_drivers": ["- Microsoft Cloud (Azure) expansion and Microsoft Cloud revenue growth; - Microsoft 365 (Commercial and Consumer) adoption and Copilot-driven ARPU gains; - Dynamics 365 and LinkedIn revenue growth; - Continued investments in AI infrastructure, datacenters, and compute; - Search advertising and platform monetization"],
+                "risk_factors": ["- Intense competition across all product and service markets; - Cybersecurity threats and supply\u2011chain vulnerabilities; - Regulatory, trade, sanctions, and potential AI export controls; - Datacenter power, permitting, and capacity constraints; - Acquisition/integration risks and goodwill impairment exposure"]
             },
-        {% endfor %}
+        
+            "rag/metrics/Salesforce_2026_extracted_kpis.json": {
+                "company": "Salesforce",
+                "year": "2026",
+                "revenue": "41525.0",
+                "net_income": "7457.0",
+                "operating_income": "8331.0",
+                "cash_flow": "14996.0",
+                "total_assets": "112305.0",
+                "total_liabilities": "53163.0",
+                "growth_drivers": ["- Embedding trusted AI and AI agents across products", "- Low-code/no-code tools powered by AI to accelerate adoption", "- Driving multiple service offering adoption and industry-specific (vertical) solutions", "- Geographic expansion and increased enterprise/international penetration", "- Marketplace and large developer/community (Trailblazers) ecosystem"],
+                "risk_factors": ["- Currency exchange rate fluctuations impacting results and cash flows", "- High indebtedness and related debt service/refinancing risk", "- Acquisition and integration risks (including potential impairment and operational disruption)", "- Cybersecurity threats and evolving risks", "- Seasonality and quarter-to-quarter fluctuations in revenues and operating cash flow", "- Risks from international operations and regulatory differences", "- Potential loss of key personnel and hiring/retention challenges"]
+            },
+        
     };
 </script>
 

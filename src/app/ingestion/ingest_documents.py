@@ -1,13 +1,19 @@
-import os , json
+import os
+from hashlib import sha256
+from tempfile import TemporaryDirectory
 from pathlib import Path
 from dotenv import load_dotenv
-from langchain_openai import OpenAIEmbeddings
 from azure.search.documents import SearchClient
 from src.app.ingestion.pdf_to_markdown import PDFToMarkdownConverter
 from azure.core.credentials import AzureKeyCredential
 from src.app.ingestion.chunking import read_chunk_upload_docs, parse_company_year
 from src.app.rag.kpi_extractor import extract_financial_metrics, Retriever
-from src.app.ingestion.azure_storage import upload_blob_data
+from src.app.ingestion.azure_storage import (
+    download_cached_markdown,
+    download_input_document,
+    upload_blob_data,
+    upload_markdown_document,
+)
 
 load_dotenv()
 
@@ -22,8 +28,8 @@ def ingest_document(pdf_path : str) -> None:
     #pdf_path = Path(pdf_path)
     
     # Commenting out for now as it already converted to MD and chunks are already uploaded
-    PDFToMarkdownConverter(input_dir = pdf_path, output_dir = str(output_dir))
-    read_chunk_upload_docs()
+    markdown_files = PDFToMarkdownConverter(input_dir = pdf_path, output_dir = str(output_dir))
+    read_chunk_upload_docs(markdown_files)
 
     # Initialise Azure AI search client
     search_client = SearchClient(     index_name = os.getenv("AZURE_SEARCH_INDEX_NAME"),
@@ -39,6 +45,59 @@ def ingest_document(pdf_path : str) -> None:
     
     result = upload_blob_data(metrics.model_dump_json(),company,year)
     print(result)
+
+
+def ingest_blob_document(blob_path: str) -> dict:
+    with TemporaryDirectory() as temporary_dir:
+        working_dir = Path(temporary_dir)
+        pdf_path = working_dir / Path(blob_path).name
+        download_input_document(blob_path, pdf_path)
+        source_pdf_sha256 = sha256(pdf_path.read_bytes()).hexdigest()
+        markdown_file = working_dir / f"{pdf_path.stem}.md"
+
+        markdown_blob_path = download_cached_markdown(
+            blob_path,
+            source_pdf_sha256,
+            markdown_file,
+        )
+        indexing_skipped = markdown_blob_path is not None
+
+        if indexing_skipped:
+            indexing_result = {
+                "source_files": [markdown_file.name],
+                "chunks_uploaded": 0,
+            }
+        else:
+            PDFToMarkdownConverter(
+                input_dir=str(pdf_path),
+                output_dir=str(working_dir),
+            )
+            if not markdown_file.is_file():
+                generated_files = [path.name for path in working_dir.glob("*.md")]
+                raise RuntimeError(
+                    f"Expected {markdown_file.name}, found {generated_files or 'no Markdown files'}"
+                )
+            if markdown_file.stat().st_size == 0:
+                raise RuntimeError(f"Generated Markdown file {markdown_file.name} is empty")
+
+            indexing_result = read_chunk_upload_docs([markdown_file])
+            markdown_blob_path = upload_markdown_document(
+                markdown_file,
+                blob_path,
+                source_pdf_sha256,
+            )
+
+        search_client = SearchClient(
+            index_name=os.getenv("AZURE_SEARCH_INDEX_NAME"),
+            credential=AzureKeyCredential(os.getenv("AZURE_SEARCH_API_KEY")),
+            endpoint=os.getenv("AZURE_SEARCH_ENDPOINT"),
+        )
+        company, year = parse_company_year(pdf_path)
+        metrics = extract_financial_metrics(Retriever(search_client), company=company, year=year)
+        upload_blob_data(metrics.model_dump_json(), company, year)
+        indexing_result["indexing_skipped"] = indexing_skipped
+        indexing_result["markdown_blob_path"] = markdown_blob_path
+        return indexing_result
 
     
 if __name__ == "__main__":

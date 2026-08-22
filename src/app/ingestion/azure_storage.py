@@ -1,33 +1,129 @@
 
 import os , json
+from pathlib import Path
+from typing import BinaryIO
 from dotenv import load_dotenv
 from azure.storage.blob import BlobServiceClient, ContentSettings
-from azure.identity import DefaultAzureCredential, ClientSecretCredential
 
 load_dotenv() 
 
 account_url    = os.getenv("AZURE_STORAGE_URL")
 container_name = os.getenv("AZURE_CONTAINER_NAME")
 blob_name      = os.getenv("AZURE_BLOB_NAME")
+input_container_name = os.getenv("AZURE_INPUT_CONTAINER_NAME")
+input_blob_prefix = os.getenv("AZURE_INPUT_BLOB_PREFIX", "").strip("/")
+markdown_blob_prefix = os.getenv(
+    "AZURE_MARKDOWN_BLOB_PREFIX", "rag/processed_files"
+).strip("/")
 
-client_id = os.getenv("AZURE_CLIENT_ID")
-tenant_id = os.getenv("AZURE_TENANT_ID")
-client_secret = os.getenv("AZURE_CLIENT_SECRET")
-vault_url = os.getenv("AZURE_VAULT_URL")
 storage_key    = os.getenv("AZURE_STORAGE_KEY") 
 
+KPI_FIELDS = {
+    "revenue",
+    "profit",
+    "net_income",
+    "operating_income",
+    "cash_flow",
+    "total_asset",
+    "total_assets",
+    "total_liabilities",
+    "risk_factors",
+    "growth_drivers",
+}
 
-credentials = ClientSecretCredential(
-                client_id     = client_id,
-                client_secret = client_secret,
-                tenant_id     = tenant_id
+def _get_blob_service_client() -> BlobServiceClient:
+    if not account_url or not storage_key:
+        raise ValueError("AZURE_STORAGE_URL and AZURE_STORAGE_KEY must be configured")
 
-                                        )
+    return BlobServiceClient(account_url=account_url, credential=storage_key)
+
+
+def upload_input_document(payload: BinaryIO, filename: str, content_type: str) -> str:
+    if not input_container_name:
+        raise ValueError("AZURE_INPUT_CONTAINER_NAME must be configured")
+
+    blob_path = "/".join(part for part in (input_blob_prefix, Path(filename).name) if part)
+    blob_client = _get_blob_service_client().get_blob_client(
+        container=input_container_name,
+        blob=blob_path,
+    )
+    blob_client.upload_blob(
+        payload,
+        overwrite=True,
+        content_settings=ContentSettings(content_type=content_type),
+    )
+    return blob_path
+
+
+def download_input_document(blob_path: str, destination: Path) -> None:
+    if not input_container_name:
+        raise ValueError("AZURE_INPUT_CONTAINER_NAME must be configured")
+
+    blob_client = _get_blob_service_client().get_blob_client(
+        container=input_container_name,
+        blob=blob_path,
+    )
+    destination.write_bytes(blob_client.download_blob().readall())
+
+
+def get_markdown_blob_path(input_blob_path: str) -> str:
+    markdown_name = f"{Path(input_blob_path).stem}.md"
+    return "/".join(
+        part for part in (markdown_blob_prefix, markdown_name) if part
+    )
+
+
+def download_cached_markdown(
+    input_blob_path: str,
+    source_pdf_sha256: str,
+    destination: Path,
+) -> str | None:
+    if not input_container_name:
+        raise ValueError("AZURE_INPUT_CONTAINER_NAME must be configured")
+
+    markdown_blob_path = get_markdown_blob_path(input_blob_path)
+    blob_client = _get_blob_service_client().get_blob_client(
+        container=input_container_name,
+        blob=markdown_blob_path,
+    )
+    if not blob_client.exists():
+        return None
+
+    properties = blob_client.get_blob_properties()
+    if properties.metadata.get("source_pdf_sha256") != source_pdf_sha256:
+        return None
+
+    destination.write_bytes(blob_client.download_blob().readall())
+    return markdown_blob_path
+
+
+def upload_markdown_document(
+    markdown_file: Path,
+    input_blob_path: str,
+    source_pdf_sha256: str,
+) -> str:
+    if not input_container_name:
+        raise ValueError("AZURE_INPUT_CONTAINER_NAME must be configured")
+
+    markdown_blob_path = get_markdown_blob_path(input_blob_path)
+    blob_client = _get_blob_service_client().get_blob_client(
+        container=input_container_name,
+        blob=markdown_blob_path,
+    )
+    blob_client.upload_blob(
+        markdown_file.read_bytes(),
+        overwrite=True,
+        metadata={"source_pdf_sha256": source_pdf_sha256},
+        content_settings=ContentSettings(
+            content_type="text/markdown; charset=utf-8"
+        ),
+    )
+    return markdown_blob_path
 
 def upload_blob_data(payload, company, year):
 
     # set client to access azure storage container
-    blob_service_client = BlobServiceClient(account_url = account_url, credential = storage_key)
+    blob_service_client = _get_blob_service_client()
 
     # Then using blob service client get container client and access that container
     container_client = blob_service_client.get_container_client(container = container_name)
@@ -49,21 +145,53 @@ def upload_blob_data(payload, company, year):
 #secret = secret_client.get_secret(secret_name)
 
 
+def _metric_payloads(parsed: object) -> list[dict]:
+    if isinstance(parsed, list):
+        candidates = parsed
+    elif isinstance(parsed, dict) and isinstance(parsed.get("metrics"), list):
+        candidates = parsed["metrics"]
+    elif isinstance(parsed, dict) and isinstance(parsed.get("metrics"), dict):
+        candidates = [parsed["metrics"]]
+    else:
+        candidates = [parsed]
+
+    return [
+        candidate
+        for candidate in candidates
+        if isinstance(candidate, dict) and KPI_FIELDS.intersection(candidate)
+    ]
+
+
+def _blob_company_year(blob_path: str, metrics: dict) -> tuple[str, str | None]:
+    path = Path(blob_path)
+    filename = path.name
+    company = metrics.get("company")
+    year = metrics.get("year")
+
+    if filename.endswith("_extracted_kpis.json"):
+        stem = filename.removesuffix("_extracted_kpis.json")
+        filename_company, separator, filename_year = stem.rpartition("_")
+        company = company or (filename_company if separator else stem)
+        year = year or (filename_year if separator else None)
+    else:
+        company = company or (path.parent.name if path.parent.name else path.stem)
+
+    return str(company), str(year) if year is not None else None
+
+
 def get_blob_data() -> list[dict]:
-    """List every extracted-KPI blob under the `{blob_name}/` prefix and
-    download+parse each one, without needing to know company/year ahead
-    of time.
-    """
-    blob_service_client = BlobServiceClient(account_url=account_url, credential=storage_key)
+    """Load every KPI-shaped JSON blob from the configured metrics container."""
+    blob_service_client = _get_blob_service_client()
     container_client = blob_service_client.get_container_client(container=container_name)
  
     all_data = []
  
-    # name_starts_with acts as a folder-prefix filter server-side, so this
-    # only lists blobs under e.g. "metrics/", not the whole container.
-    blob_list = container_client.list_blobs(name_starts_with=f"{blob_name}/")
+    blob_list = container_client.list_blobs()
  
     for blob_props in blob_list:
+        if not blob_props.name.lower().endswith(".json"):
+            continue
+
         blob_client = container_client.get_blob_client(blob=blob_props.name)
         try:
             raw = blob_client.download_blob().readall().decode("utf-8")
@@ -72,19 +200,14 @@ def get_blob_data() -> list[dict]:
             print(f"[WARN] failed to read/parse blob '{blob_props.name}': {e}")
             continue
  
-        # Pull company/year back out of the filename, since the JSON
-        # payload itself may not carry them.
-        # expected format: "<company>_<year>_extracted_kpis.json"
-        filename = blob_props.name.split("/")[-1]
-        stem = filename.removesuffix("_extracted_kpis.json")
-        company, _, year = stem.rpartition("_")
- 
-        all_data.append({
-            "company": company or None,
-            "year": year or None,
-            "blob_name": blob_props.name,
-            "metrics": parsed,
-        })
+        for metrics in _metric_payloads(parsed):
+            company, year = _blob_company_year(blob_props.name, metrics)
+            all_data.append({
+                "company": company,
+                "year": year,
+                "blob_name": blob_props.name,
+                "metrics": metrics,
+            })
  
     print(f"[INFO] loaded {len(all_data)} document(s) from container '{container_name}'")
     return all_data
@@ -105,4 +228,3 @@ def get_blob_data() -> list[dict]:
 #     data = blob_client.download_blob().readall().decode("utf-8")
 
 #     return data
-

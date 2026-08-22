@@ -24,14 +24,20 @@ def flatten_metrics(raw_data: list[dict]) -> list[dict]:
     rows = []
     for doc in raw_data:
         metrics = doc.get("metrics", {})
+        report_company = metrics.get("company") or doc.get("company") or "Unknown"
+        report_year = metrics.get("year") or doc.get("year")
+        report_key = doc.get("blob_name") or "::".join(
+            (str(report_company), str(report_year or "unknown"))
+        )
         rows.append({
-            "company": doc.get("company"),
-            "year": doc.get("year"),
+            "report_key": report_key,
+            "company": report_company,
+            "year": report_year,
             "revenue": metrics.get("revenue"),
-            "profit": metrics.get("profit"),
+            "net_income": metrics.get("net_income") or metrics.get("profit"),
             "operating_income": metrics.get("operating_income"),
             "cash_flow": metrics.get("cash_flow"),
-            "total_assets": metrics.get("total_asset"),          
+            "total_assets": metrics.get("total_assets") or metrics.get("total_asset"),
             "total_liabilities": metrics.get("total_liabilities"),
             "risk_factors": metrics.get("risk_factors"),
             "growth_drivers": metrics.get("growth_drivers"),

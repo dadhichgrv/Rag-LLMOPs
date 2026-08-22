@@ -6,6 +6,7 @@ from langchain_openai import ChatOpenAI
 from azure.search.documents import SearchClient
 from azure.core.credentials import AzureKeyCredential
 from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.output_parsers import StrOutputParser
 from src.app.rag.kpi_extractor import extract_financial_metrics, Retriever
 
 router = APIRouter()
@@ -20,9 +21,12 @@ llm = ChatOpenAI(
 class ChatState(BaseModel):
     query    : str 
     company  : str | None = None
-    year     : str | None = None
+    year     : int | None = None
 
-@router.post("/chat")
+class ChatResponse(BaseModel):
+    answer : str
+
+@router.post("/chat", response_model=ChatResponse)
 def chatbot(state: ChatState):
     query   = state.query
     company = state.company
@@ -48,13 +52,13 @@ def chatbot(state: ChatState):
 
     prompt = ChatPromptTemplate.from_messages([
         ("system" , prompt_message),
-        (("human" , "Context : {final_context} \n\n  {query}:query"))
+        (("human" , "Context : {final_context} \n\n  Question:{query}"))
                                 ])
     
-    rag_chain = prompt | llm 
+    rag_chain = prompt | llm | StrOutputParser()
     response = rag_chain.invoke({"final_context":final_context, "query":query})
-    print("Context : ", final_context)
-    return response
+    #print("Context : ", final_context)
+    return ChatResponse(answer=response)
     
 
 

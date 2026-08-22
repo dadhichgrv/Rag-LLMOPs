@@ -6,7 +6,7 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-def PDFToMarkdownConverter(input_dir : str, output_dir : str):
+def PDFToMarkdownConverter(input_dir : str, output_dir : str) -> list[Path]:
     """
     Convert all the .pdf files in this directory to markdown format
    
@@ -23,7 +23,7 @@ def PDFToMarkdownConverter(input_dir : str, output_dir : str):
     output_path = Path(output_dir)
 
     # All PDF files
-    pdf_files = list(input_path.glob("*.pdf"))
+    pdf_files = [input_path] if input_path.is_file() else list(input_path.glob("*.pdf"))
 
 
     if not pdf_files:
@@ -31,6 +31,8 @@ def PDFToMarkdownConverter(input_dir : str, output_dir : str):
 
     # Create output path if not created already
     output_path.mkdir(exist_ok = True, parents = True)
+
+    markdown_files = []
 
     # For each .pdf file in input folder
     for file in pdf_files:
@@ -46,6 +48,7 @@ def PDFToMarkdownConverter(input_dir : str, output_dir : str):
                                 data = markdown_content,
                                 encoding = "utf-8"
                                 )
+        markdown_files.append(markdown_file)
         
    
 

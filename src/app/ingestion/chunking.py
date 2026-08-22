@@ -2,6 +2,7 @@ import os
 import uuid 
 import logging
 from pathlib import Path
+from collections.abc import Iterable
 
 from dotenv import load_dotenv
 from langchain_openai import OpenAIEmbeddings
@@ -59,21 +60,26 @@ def read_and_chunk_markdown(markdown_file : Path):
 
 
 # Function to upload documents in batches
-def upload_in_batches(documents, batch_size = UPLOAD_BATCH_SIZE):
+def upload_in_batches(documents, batch_size = UPLOAD_BATCH_SIZE) -> int:
+    uploaded_count = 0
+
     for i in range(0, len(documents), batch_size):
         batch  = documents[i: i+batch_size]
         result = search_client.upload_documents(documents = batch)
 
         failed = [r for r in result if not r.succeeded]
         if failed:
-            logger.warning(
-                "%d/%d documents failed in batch %d",
-                len(failed), len(batch), i // batch_size,
+            errors = "; ".join(
+                f"key={failure.key}: {failure.error_message}" for failure in failed
             )
-            for f in failed:
-                logger.warning("  key=%s error=%s", f.key, f.error_message)
-        else:
-            logger.info("Uploaded batch %d (%d docs)", i // batch_size, len(batch))
+            raise RuntimeError(
+                f"Azure AI Search rejected {len(failed)}/{len(batch)} chunks: {errors}"
+            )
+
+        uploaded_count += len(batch)
+        logger.info("Uploaded batch %d (%d docs)", i // batch_size, len(batch))
+
+    return uploaded_count
  
 
 # Get company and year info from file name
@@ -94,12 +100,14 @@ def parse_company_year(pdf_file : Path):
     return company, year
 
 
-def read_chunk_upload_docs():
-    md_files = sorted(Path(output_dir).glob("*.md"))
+def read_chunk_upload_docs(markdown_files: Iterable[Path] | None = None) -> dict:
+    if markdown_files is None:
+        md_files = sorted(Path(output_dir).glob("*.md"))
+    else:
+        md_files = sorted(Path(markdown_file) for markdown_file in markdown_files)
 
     if not md_files:
-        logger.warning("No .md files found in %s", output_dir)
-        return
+        raise FileNotFoundError("No generated Markdown files were provided for indexing")
     
     logger.info("Found %d markdown files in %s", len(md_files), output_dir)
     
@@ -127,13 +135,14 @@ def read_chunk_upload_docs():
                                 )
             
     logger.info("Uploading %d total chunks to Azure AI Search ...", len(raw_documents))        
-    upload_in_batches(raw_documents)
-    logger.info("Done.")
+    uploaded_count = upload_in_batches(raw_documents)
+    source_files = [md_file.name for md_file in md_files]
+    logger.info("Indexed %d chunks from %s", uploaded_count, source_files)
+    return {"source_files": source_files, "chunks_uploaded": uploaded_count}
 
 
 if __name__ == "__main__":
     read_chunk_upload_docs()
-
 
 
 

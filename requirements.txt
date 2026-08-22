@@ -18,6 +18,7 @@ deepeval
 langfuse
 mlflow
 pymupdf4llm
+fastapi
 uvicorn
 
 

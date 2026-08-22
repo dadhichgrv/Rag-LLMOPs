@@ -11,7 +11,7 @@ from dotenv import load_dotenv
 from src.app.ingestion.azure_storage import get_blob_data
 from src.app.vector_store.create_search_index import create_index
 from src.routes.chat import router as chatbot_router
-from src.routes.dashboard import router as dashboard_router
+from src.routes.dashboard import router as dashboard_router, flatten_metrics
 from src.routes.health import router as health_router 
 from src.routes.ingestion import router as ingestion_router
 
@@ -68,7 +68,7 @@ def dashboard(request: Request):
     """
     Render dashboard UI.
     """
-    metrics = get_blob_data()
+    metrics = flatten_metrics(get_blob_data())
 
     return templates.TemplateResponse(
         request=request,

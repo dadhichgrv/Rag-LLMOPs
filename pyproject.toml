@@ -28,4 +28,5 @@ dependencies = [
     "azure-storage-blob>=12.30.0",
     "azure-keyvault>=4.2.0",
     "uvicorn>=0.51.0",
+    "fastapi>=0.138.0",
 ]
