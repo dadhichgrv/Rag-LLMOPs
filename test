@@ -1,72 +1,149 @@
-# from fastapi import APIRouter
-# from src.app.ingestion.azure_storage import get_blob_data
+import os 
+import uuid 
+import logging
+from pathlib import Path
+from collections.abc import Iterable
 
-# router = APIRouter()
-
-# @router.get("/metrics")
-# def get_metrics():
-#     return get_blob_data()
-
-
-from fastapi import APIRouter, Request
-from fastapi.templating import Jinja2Templates
-from src.app.ingestion.azure_storage import get_blob_data # the function from the previous script
-
-router = APIRouter()
-templates = Jinja2Templates(directory="templates")  # adjust to wherever your .html files live
+from dotenv import load_dotenv
+from langchain_openai import OpenAIEmbeddings
+from azure.search.documents import SearchClient
+from azure.core.credentials import AzureKeyCredential
+from langchain_text_splitters import RecursiveCharacterTextSplitter
+#from langchain_experimental.text_splitter import SemanticChunker
 
 
-def flatten_metrics(raw_data: list[dict]) -> list[dict]:
-    """Flatten get_all_blob_data()'s nested shape into flat rows the
-    template can read directly, and rename fields to match what the
-    template actually checks for (e.g. total_asset -> total_assets).
-    """
-    rows = []
-    for doc in raw_data:
-        metrics = doc.get("metrics", {})
-        report_company = metrics.get("company") or doc.get("company") or "Unknown"
-        report_year = metrics.get("year") or doc.get("year")
-        report_key = doc.get("blob_name") or "::".join(
-            (str(report_company), str(report_year or "unknown"))
-        )
-        rows.append({
-            "report_key": report_key,
-            "company": report_company,
-            "year": report_year,
-            "revenue": metrics.get("revenue"),
-            "net_income": metrics.get("net_income") or metrics.get("profit"),
-            "operating_income": metrics.get("operating_income"),
-            "cash_flow": metrics.get("cash_flow"),
-            "total_assets": metrics.get("total_assets") or metrics.get("total_asset"),
-            "total_liabilities": metrics.get("total_liabilities"),
-            "risk_factors": metrics.get("risk_factors"),
-            "growth_drivers": metrics.get("growth_drivers"),
-        })
-    return rows
+load_dotenv()
 
+UPLOAD_BATCH_SIZE = 500
+chunk_size = 300
+chunk_overlap = 50
 
-@router.get("/dashboard")
-def dashboard(request: Request):
-    raw_data = get_blob_data()
-    metrics = flatten_metrics(raw_data)
+ROOT_DIR = Path(__file__).parent.parent.parent.parent.resolve()
 
-    total_companies = len({row["company"] for row in metrics if row.get("company")})
-    total_reports = len(metrics)
- 
-    # Must return a rendered template, not the raw data --
-    # `return metrics` skips the HTML entirely and just serializes JSON.
-    return templates.TemplateResponse(
-        "templates/dashboard.html",
-        {
-            "request": request,
-            "metrics": metrics,
-            "total_companies": total_companies,
-            "total_reports": total_reports,
-        },
-    )
+# Input Dir and Output Dir paths
+input_dir  = ROOT_DIR / "data" / "raw"
+output_dir = ROOT_DIR / "data" / "processed"
 
-    # return templates.TemplateResponse(
-    #     # "templates/dashboard.html",  # the file containing your kpi-card HTML
-    #     {"request": request, "metrics": metrics}
-    # )
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+logger = logging.getLogger(__name__)
+
+# Embeddings
+embeddings = OpenAIEmbeddings(
+                            model      = os.getenv("AZURE_OPENAI_EMBEDDING_DEPLOYMENT"),  
+                            dimensions = 1024,
+                            api_key    = os.getenv("AZURE_OPENAI_API_KEY"),
+                            base_url   = os.getenv("AZURE_OPENAI_ENDPOINT")
+                            )
+
+# Initialise Azure AI search client
+search_client = SearchClient(    index_name = os.getenv("AZURE_SEARCH_INDEX_NAME"),
+                                 credential = AzureKeyCredential(os.getenv("AZURE_SEARCH_API_KEY")),
+                                 endpoint   = os.getenv("AZURE_SEARCH_ENDPOINT")
+                                 )
+
+# Text Splitter                        
+text_splitter = RecursiveCharacterTextSplitter.from_tiktoken_encoder(chunk_size    = chunk_size, 
+                                                                     chunk_overlap = chunk_overlap,
+                                                                     model_name    = os.getenv("AZURE_OPENAI_CHAT_DEPLOYMENT"))
+
+# Use text splitter to split documents
+def read_and_chunk_markdown(markdown_file : Path):
+    markdown_content = markdown_file.read_text( encoding = "utf-8" )
+
+    return text_splitter.split_text(markdown_content)
+    # splitter = SemanticChunker(
+    #                             embeddings = embeddings,
+    #                             breakpoint_threshold_type = "percentile"
+    #                             )
     
+    #return splitter.create_documents([markdown_content])
+
+
+# Function to upload documents in batches
+def upload_in_batches(documents, batch_size = UPLOAD_BATCH_SIZE) -> int:
+    uploaded_count = 0
+
+    for i in range(0, len(documents), batch_size):
+        batch  = documents[i: i+batch_size]
+        result = search_client.upload_documents(documents = batch)
+
+        failed = [r for r in result if not r.succeeded]
+        if failed:
+            errors = "; ".join(
+                f"key={failure.key}: {failure.error_message}" for failure in failed
+            )
+            raise RuntimeError(
+                f"Azure AI Search rejected {len(failed)}/{len(batch)} chunks: {errors}"
+            )
+
+        uploaded_count += len(batch)
+        logger.info("Uploaded batch %d (%d docs)", i // batch_size, len(batch))
+
+    return uploaded_count
+ 
+
+# Get company and year info from file name
+def parse_company_year(pdf_file : Path):
+    stem = pdf_file.stem
+    parts = stem.split("_")
+
+    if parts and parts[0].isdigit():
+        year    = parts[0]
+        company = parts[-1]
+    elif len(parts) >=2 :
+        company = parts[0]
+        year    = parts[1]
+    else:
+        company = stem 
+        year    = ""
+
+    return company, year
+
+
+def read_chunk_upload_docs(markdown_files: Iterable[Path] | None = None) -> dict:
+    if markdown_files is None:
+        md_files = sorted(Path(output_dir).glob("*.md"))
+    else:
+        md_files = sorted(Path(markdown_file) for markdown_file in markdown_files)
+
+    if not md_files:
+        raise FileNotFoundError("No generated Markdown files were provided for indexing")
+    
+    logger.info("Found %d markdown files in %s", len(md_files), output_dir)
+    
+    raw_documents = []
+
+    for md_file in md_files:
+        company, year = parse_company_year(md_file)
+        chunks        = read_and_chunk_markdown(md_file)
+        
+        for chunk in chunks:
+            # vector = embeddings.embed_query(chunk.page_content)
+            vector = embeddings.embed_query(chunk)
+
+            # Add meta data to documents
+            raw_documents.append(
+                {
+                    "id"             : str(uuid.uuid4()),
+                    "company"        : company,
+                    "year"           : year,
+                    "source_file"    : md_file.name,
+                    "content"        : chunk,
+                    "content_vector" : vector
+                }
+                                
+                                )
+            
+    logger.info("Uploading %d total chunks to Azure AI Search ...", len(raw_documents))        
+    uploaded_count = upload_in_batches(raw_documents)
+    source_files = [md_file.name for md_file in md_files]
+    logger.info("Indexed %d chunks from %s", uploaded_count, source_files)
+    return {"source_files": source_files, "chunks_uploaded": uploaded_count}
+
+
+if __name__ == "__main__":
+    read_chunk_upload_docs()
+
+
+
+
