@@ -7,13 +7,29 @@ from langchain_core.documents import Document
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_community.document_loaders import DirectoryLoader, TextLoader
 from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+#from vectorstore.azure_ai_search import AzureAISearchvectorStore
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langgraph.graph import START, END, StateGraph
 from typing import TypedDict, Literal
+from langfuse import get_client 
 from langchain_core.output_parsers import StrOutputParser
 
 
 load_dotenv()
+
+# Initialize Langfuse client
+langfuse = get_client()
+
+# vector_store = AzureAISearchVectorStore(
+#                     endpoint   = os.getenv("AZURE_SEARCH_ENDPOINT"),
+#                     api_key    = os.getenv("AZURE_SEARCH_API_KEY"),
+#                     index_name = os.getenv("AZURE_SEARCH_INDEX_NAME")
+#                                         )
+
+# load system prompt which is label as latest  
+system_prompt = langfuse.get_prompt(name   = "rag_app_system_prompt", 
+                                    type   = "text",
+                                    label  = "latest")
 
 ROOT_DIR                  = Path(__file__).parent.parent.parent
 PROCESSED_TRANSCRIPTS_DIR = ROOT_DIR / "data" / "processed"
@@ -21,21 +37,21 @@ VECTOR_STORE_DIR          = ROOT_DIR / "saved_embeddings"
 
 # Load LLM
 llm = ChatOpenAI(
-    model    = "gpt-5-mini",  
-    api_key  = os.getenv("OPENAI_API_KEY"),
+    model    = os.getenv("AZURE_OPENAI_CHAT_DEPLOYMENT"),  
+    api_key  = os.getenv("AZURE_OPENAI_API_KEY"),
     base_url = os.getenv("AZURE_OPENAI_ENDPOINT")
 )
 
 
 # Embeddings
 embedder = OpenAIEmbeddings(
-    model="text-embedding-3-small",  
+    model= os.getenv("AZURE_OPENAI_EMBEDDING_DEPLOYMENT"),  
     dimensions=1024,
-    api_key=os.getenv("OPENAI_API_KEY"),
+    api_key=os.getenv("AZURE_OPENAI_API_KEY "),
     base_url=os.getenv("AZURE_OPENAI_ENDPOINT"),
 )
 
-model_name = "gpt-5-mini"
+model_name = os.getenv("AZURE_OPENAI_CHAT_DEPLOYMENT")
 chunk_size = 300
 chunk_overlap = 50
 
@@ -110,8 +126,7 @@ def augmentation(state:RAGState):
     context = state["context"]
 
     prompt = ChatPromptTemplate.from_messages([
-        ("system" , ("You are a helpful RAG assistant who responds user query only from given context. \n"
-        "If you do not know, say, I don't know. Do not hallucinate or give wrong answers")),
+        ("system" , system_prompt.prompt),
         (("human" , "Context : {context} \n\n  {query}:query"))
                                 ])
     return {"prompt":prompt}

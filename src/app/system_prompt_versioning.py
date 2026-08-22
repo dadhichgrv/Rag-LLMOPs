@@ -11,7 +11,8 @@ k = 3
 
 system_prompt = """
 You are a helpful RAG assistant who responds user query only from given context. 
-If you do not know, say, I don't know. Do not hallucinate or give wrong answers
+If you do not know, say, I don't know. Do not hallucinate or give wrong answers.
+Respond back in simple language and keep persona of mentor.
 """
 
 # Initialize Langfuse client
@@ -22,7 +23,7 @@ created_prompt = langfuse.create_prompt(
                              name   = "rag_app_system_prompt",
                              type   = "text",
                              prompt = system_prompt,
-                             labels = ["baseline"],
+                             labels = ["staging"],
                              config = {
                                         "chunk_size"    : chunk_size,
                                         "chunk_overlap" : chunk_overlap,

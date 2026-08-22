@@ -1,9 +1,14 @@
 langchain
 langchain-core
 langchain-community
+langchain-experimental
 langchain-text-splitters
 langchain-openai
 langchain-chroma
+azure-search-documents
+azure-identity
+azure-storage-blob
+azure-keyvault
 chromadb
 onnxruntime<1.21
 python-dotenv
@@ -11,4 +16,9 @@ langgraph
 ipykernel
 deepeval
 langfuse
+mlflow
+pymupdf4llm
+uvicorn
+
+
 
