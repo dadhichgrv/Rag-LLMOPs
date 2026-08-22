@@ -1,149 +1,231 @@
-import os 
-import uuid 
-import logging
+
+import os , json
 from pathlib import Path
-from collections.abc import Iterable
-
+from typing import BinaryIO
 from dotenv import load_dotenv
-from langchain_openai import OpenAIEmbeddings
-from azure.search.documents import SearchClient
-from azure.core.credentials import AzureKeyCredential
-from langchain_text_splitters import RecursiveCharacterTextSplitter
-#from langchain_experimental.text_splitter import SemanticChunker
+from azure.storage.blob import BlobServiceClient, ContentSettings
+
+load_dotenv() 
+
+account_url    = os.getenv("AZURE_STORAGE_URL")
+container_name = os.getenv("AZURE_CONTAINER_NAME")
+blob_name      = os.getenv("AZURE_BLOB_NAME")
+input_container_name = os.getenv("AZURE_INPUT_CONTAINER_NAME")
+input_blob_prefix = os.getenv("AZURE_INPUT_BLOB_PREFIX", "").strip("/")
+markdown_blob_prefix = os.getenv(
+    "AZURE_MARKDOWN_BLOB_PREFIX", "rag/processed_files"
+).strip("/")
+
+storage_key    = os.getenv("AZURE_STORAGE_KEY") 
+
+KPI_FIELDS = {
+    "revenue",
+    "profit",
+    "net_income",
+    "operating_income",
+    "cash_flow",
+    "total_asset",
+    "total_assets",
+    "total_liabilities",
+    "risk_factors",
+    "growth_drivers",
+}
+
+def _get_blob_service_client() -> BlobServiceClient:
+    if not account_url or not storage_key:
+        raise ValueError("AZURE_STORAGE_URL and AZURE_STORAGE_KEY must be configured")
+
+    return BlobServiceClient(account_url=account_url, credential=storage_key)
 
 
-load_dotenv()
+def upload_input_document(payload: BinaryIO, filename: str, content_type: str) -> str:
+    if not input_container_name:
+        raise ValueError("AZURE_INPUT_CONTAINER_NAME must be configured")
 
-UPLOAD_BATCH_SIZE = 500
-chunk_size = 300
-chunk_overlap = 50
-
-ROOT_DIR = Path(__file__).parent.parent.parent.parent.resolve()
-
-# Input Dir and Output Dir paths
-input_dir  = ROOT_DIR / "data" / "raw"
-output_dir = ROOT_DIR / "data" / "processed"
-
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
-logger = logging.getLogger(__name__)
-
-# Embeddings
-embeddings = OpenAIEmbeddings(
-                            model      = os.getenv("AZURE_OPENAI_EMBEDDING_DEPLOYMENT"),  
-                            dimensions = 1024,
-                            api_key    = os.getenv("AZURE_OPENAI_API_KEY"),
-                            base_url   = os.getenv("AZURE_OPENAI_ENDPOINT")
-                            )
-
-# Initialise Azure AI search client
-search_client = SearchClient(    index_name = os.getenv("AZURE_SEARCH_INDEX_NAME"),
-                                 credential = AzureKeyCredential(os.getenv("AZURE_SEARCH_API_KEY")),
-                                 endpoint   = os.getenv("AZURE_SEARCH_ENDPOINT")
-                                 )
-
-# Text Splitter                        
-text_splitter = RecursiveCharacterTextSplitter.from_tiktoken_encoder(chunk_size    = chunk_size, 
-                                                                     chunk_overlap = chunk_overlap,
-                                                                     model_name    = os.getenv("AZURE_OPENAI_CHAT_DEPLOYMENT"))
-
-# Use text splitter to split documents
-def read_and_chunk_markdown(markdown_file : Path):
-    markdown_content = markdown_file.read_text( encoding = "utf-8" )
-
-    return text_splitter.split_text(markdown_content)
-    # splitter = SemanticChunker(
-    #                             embeddings = embeddings,
-    #                             breakpoint_threshold_type = "percentile"
-    #                             )
-    
-    #return splitter.create_documents([markdown_content])
+    blob_path = "/".join(part for part in (input_blob_prefix, Path(filename).name) if part)
+    blob_client = _get_blob_service_client().get_blob_client(
+        container=input_container_name,
+        blob=blob_path,
+    )
+    blob_client.upload_blob(
+        payload,
+        overwrite=True,
+        content_settings=ContentSettings(content_type=content_type),
+    )
+    return blob_path
 
 
-# Function to upload documents in batches
-def upload_in_batches(documents, batch_size = UPLOAD_BATCH_SIZE) -> int:
-    uploaded_count = 0
+def download_input_document(blob_path: str, destination: Path) -> None:
+    if not input_container_name:
+        raise ValueError("AZURE_INPUT_CONTAINER_NAME must be configured")
 
-    for i in range(0, len(documents), batch_size):
-        batch  = documents[i: i+batch_size]
-        result = search_client.upload_documents(documents = batch)
+    blob_client = _get_blob_service_client().get_blob_client(
+        container=input_container_name,
+        blob=blob_path,
+    )
+    destination.write_bytes(blob_client.download_blob().readall())
 
-        failed = [r for r in result if not r.succeeded]
-        if failed:
-            errors = "; ".join(
-                f"key={failure.key}: {failure.error_message}" for failure in failed
-            )
-            raise RuntimeError(
-                f"Azure AI Search rejected {len(failed)}/{len(batch)} chunks: {errors}"
-            )
 
-        uploaded_count += len(batch)
-        logger.info("Uploaded batch %d (%d docs)", i // batch_size, len(batch))
+def get_markdown_blob_path(input_blob_path: str) -> str:
+    markdown_name = f"{Path(input_blob_path).stem}.md"
+    return "/".join(
+        part for part in (markdown_blob_prefix, markdown_name) if part
+    )
 
-    return uploaded_count
+
+def download_cached_markdown(
+    input_blob_path: str,
+    source_pdf_sha256: str,
+    destination: Path,
+) -> str | None:
+    if not input_container_name:
+        raise ValueError("AZURE_INPUT_CONTAINER_NAME must be configured")
+
+    markdown_blob_path = get_markdown_blob_path(input_blob_path)
+    blob_client = _get_blob_service_client().get_blob_client(
+        container=input_container_name,
+        blob=markdown_blob_path,
+    )
+    if not blob_client.exists():
+        return None
+
+    properties = blob_client.get_blob_properties()
+    if properties.metadata.get("source_pdf_sha256") != source_pdf_sha256:
+        return None
+
+    destination.write_bytes(blob_client.download_blob().readall())
+    return markdown_blob_path
+
+
+def upload_markdown_document(
+    markdown_file: Path,
+    input_blob_path: str,
+    source_pdf_sha256: str,
+) -> str:
+    if not input_container_name:
+        raise ValueError("AZURE_INPUT_CONTAINER_NAME must be configured")
+
+    markdown_blob_path = get_markdown_blob_path(input_blob_path)
+    blob_client = _get_blob_service_client().get_blob_client(
+        container=input_container_name,
+        blob=markdown_blob_path,
+    )
+    blob_client.upload_blob(
+        markdown_file.read_bytes(),
+        overwrite=True,
+        metadata={"source_pdf_sha256": source_pdf_sha256},
+        content_settings=ContentSettings(
+            content_type="text/markdown; charset=utf-8"
+        ),
+    )
+    return markdown_blob_path
+
+def upload_blob_data(payload, company, year):
+
+    # set client to access azure storage container
+    blob_service_client = _get_blob_service_client()
+
+    # Then using blob service client get container client and access that container
+    container_client = blob_service_client.get_container_client(container = container_name)
+
+    # download blob data using container client and access blob or file
+   
+    dynamic_blob_path = f"{blob_name}/{company}_{year}_extracted_kpis.json"
+    blob_client = container_client.get_blob_client(blob = dynamic_blob_path)
+
+    # read all information from this blob then
+    payload = payload.encode('utf-8')
+    data = blob_client.upload_blob(payload, overwrite = True, 
+                                   content_settings = ContentSettings(content_type = "application/json") )
+
+    return data
+
+#secret_name = "secret"
+#secret_client = SecretClient(vault_url = vault_url, credential = credentials)
+#secret = secret_client.get_secret(secret_name)
+
+
+def _metric_payloads(parsed: object) -> list[dict]:
+    if isinstance(parsed, list):
+        candidates = parsed
+    elif isinstance(parsed, dict) and isinstance(parsed.get("metrics"), list):
+        candidates = parsed["metrics"]
+    elif isinstance(parsed, dict) and isinstance(parsed.get("metrics"), dict):
+        candidates = [parsed["metrics"]]
+    else:
+        candidates = [parsed]
+
+    return [
+        candidate
+        for candidate in candidates
+        if isinstance(candidate, dict) and KPI_FIELDS.intersection(candidate)
+    ]
+
+
+def _blob_company_year(blob_path: str, metrics: dict) -> tuple[str, str | None]:
+    path = Path(blob_path)
+    filename = path.name
+    company = metrics.get("company")
+    year = metrics.get("year")
+
+    if filename.endswith("_extracted_kpis.json"):
+        stem = filename.removesuffix("_extracted_kpis.json")
+        filename_company, separator, filename_year = stem.rpartition("_")
+        company = company or (filename_company if separator else stem)
+        year = year or (filename_year if separator else None)
+    else:
+        company = company or (path.parent.name if path.parent.name else path.stem)
+
+    return str(company), str(year) if year is not None else None
+
+
+def get_blob_data() -> list[dict]:
+    """Load every KPI-shaped JSON blob from the configured metrics container."""
+    blob_service_client = _get_blob_service_client()
+    container_client = blob_service_client.get_container_client(container=container_name)
  
+    all_data = []
+ 
+    blob_list = container_client.list_blobs()
+ 
+    for blob_props in blob_list:
+        if not blob_props.name.lower().endswith(".json"):
+            continue
 
-# Get company and year info from file name
-def parse_company_year(pdf_file : Path):
-    stem = pdf_file.stem
-    parts = stem.split("_")
+        blob_client = container_client.get_blob_client(blob=blob_props.name)
+        try:
+            raw = blob_client.download_blob().readall().decode("utf-8")
+            parsed = json.loads(raw)
+        except Exception as e:
+            print(f"[WARN] failed to read/parse blob '{blob_props.name}': {e}")
+            continue
+ 
+        for metrics in _metric_payloads(parsed):
+            company, year = _blob_company_year(blob_props.name, metrics)
+            all_data.append({
+                "company": company,
+                "year": year,
+                "blob_name": blob_props.name,
+                "metrics": metrics,
+            })
+ 
+    print(f"[INFO] loaded {len(all_data)} document(s) from container '{container_name}'")
+    return all_data
 
-    if parts and parts[0].isdigit():
-        year    = parts[0]
-        company = parts[-1]
-    elif len(parts) >=2 :
-        company = parts[0]
-        year    = parts[1]
-    else:
-        company = stem 
-        year    = ""
+# def get_blob_data(company,year):
 
-    return company, year
+#     # set client to access azure storage container
+#     blob_service_client = BlobServiceClient(account_url = account_url, credential = storage_key)
 
+#     # Then using blob service client get container client and access that container
+#     container_client = blob_service_client.get_container_client(container = container_name)
 
-def read_chunk_upload_docs(markdown_files: Iterable[Path] | None = None) -> dict:
-    if markdown_files is None:
-        md_files = sorted(Path(output_dir).glob("*.md"))
-    else:
-        md_files = sorted(Path(markdown_file) for markdown_file in markdown_files)
+#     # download blob data using container client and access blob or file
+#     dynamic_blob_path = f"{blob_name}/{company}_{year}_extracted_kpis.json"
+#     blob_client = container_client.get_blob_client(blob = dynamic_blob_path)
 
-    if not md_files:
-        raise FileNotFoundError("No generated Markdown files were provided for indexing")
-    
-    logger.info("Found %d markdown files in %s", len(md_files), output_dir)
-    
-    raw_documents = []
+#     # read all information from this blob then
+#     data = blob_client.download_blob().readall().decode("utf-8")
 
-    for md_file in md_files:
-        company, year = parse_company_year(md_file)
-        chunks        = read_and_chunk_markdown(md_file)
-        
-        for chunk in chunks:
-            # vector = embeddings.embed_query(chunk.page_content)
-            vector = embeddings.embed_query(chunk)
-
-            # Add meta data to documents
-            raw_documents.append(
-                {
-                    "id"             : str(uuid.uuid4()),
-                    "company"        : company,
-                    "year"           : year,
-                    "source_file"    : md_file.name,
-                    "content"        : chunk,
-                    "content_vector" : vector
-                }
-                                
-                                )
-            
-    logger.info("Uploading %d total chunks to Azure AI Search ...", len(raw_documents))        
-    uploaded_count = upload_in_batches(raw_documents)
-    source_files = [md_file.name for md_file in md_files]
-    logger.info("Indexed %d chunks from %s", uploaded_count, source_files)
-    return {"source_files": source_files, "chunks_uploaded": uploaded_count}
-
-
-if __name__ == "__main__":
-    read_chunk_upload_docs()
-
-
-
+#     return data
 
